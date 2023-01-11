@@ -17,6 +17,7 @@ struct Application {
     queue: Queue,
     config: SurfaceConfiguration,
     size: PhysicalSize<u32>,
+    color: wgpu::Color,
 }
 
 impl Application {
@@ -74,6 +75,12 @@ impl Application {
             queue,
             config,
             size,
+            color: wgpu::Color {
+                r: 0.1,
+                g: 0.2,
+                b: 0.3,
+                a: 1.0,
+            },
         }
     }
 
@@ -93,8 +100,15 @@ impl Application {
         }
     }
 
-    fn input(&mut self, _event: &WindowEvent) -> bool {
-        false
+    fn input(&mut self, event: &WindowEvent) -> bool {
+        match event {
+            WindowEvent::CursorMoved { position, .. } => {
+                self.color.r = position.x / self.size.width as f64;
+                self.color.g = position.y / self.size.height as f64;
+                true
+            }
+            _ => false,
+        }
     }
 
     fn update(&mut self) {}
@@ -119,12 +133,7 @@ impl Application {
                     view: &view,
                     resolve_target: None,
                     ops: Operations {
-                        load: LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
-                            a: 1.0,
-                        }),
+                        load: LoadOp::Clear(self.color),
                         store: true,
                     },
                 })],
