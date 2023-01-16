@@ -1,10 +1,13 @@
 use wgpu::{
-    Backends, BlendState, ColorTargetState, ColorWrites, CommandEncoderDescriptor,
-    CompositeAlphaMode, Device, DeviceDescriptor, Face, Features, FragmentState, FrontFace,
-    Instance, Limits, LoadOp, MultisampleState, Operations, PipelineLayoutDescriptor, PolygonMode,
-    PowerPreference, PresentMode, PrimitiveState, PrimitiveTopology, Queue,
-    RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
-    RequestAdapterOptions, ShaderModuleDescriptor, ShaderSource, Surface, SurfaceConfiguration,
+    util::{BufferInitDescriptor, DeviceExt},
+    Backends, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
+    BindGroupLayoutEntry, BindingType, BlendState, Buffer, BufferBindingType, BufferUsages,
+    ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompositeAlphaMode, Device,
+    DeviceDescriptor, Face, Features, FragmentState, FrontFace, Instance, Limits, LoadOp,
+    MultisampleState, Operations, PipelineLayoutDescriptor, PolygonMode, PowerPreference,
+    PresentMode, PrimitiveState, PrimitiveTopology, Queue, RenderPassColorAttachment,
+    RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions,
+    ShaderModuleDescriptor, ShaderSource, ShaderStages, Surface, SurfaceConfiguration,
     SurfaceError, TextureUsages, TextureViewDescriptor, VertexState,
 };
 use winit::{
@@ -22,6 +25,8 @@ struct Application {
     size: PhysicalSize<u32>,
     color: wgpu::Color,
     render_pipeline: RenderPipeline,
+    ratio_buffer: Buffer,
+    ratio_bind_group: BindGroup,
 }
 
 impl Application {
@@ -73,13 +78,40 @@ impl Application {
 
         surface.configure(&device, &config);
 
+        let ratio_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Ratio Buffer"),
+            contents: bytemuck::cast_slice(&[size.width, size.height]),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::VERTEX,
+        });
+        let ratio_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            entries: &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("ratio_bind_group_layout"),
+        });
+        let ratio_bind_group = device.create_bind_group(&BindGroupDescriptor {
+            layout: &ratio_bind_group_layout,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: ratio_buffer.as_entire_binding(),
+            }],
+            label: Some("ratio_bind_group"),
+        });
+
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("Shader"),
             source: ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
         let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[],
+            bind_group_layouts: &[&ratio_bind_group_layout],
             push_constant_ranges: &[],
         });
         let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -130,6 +162,8 @@ impl Application {
                 a: 1.0,
             },
             render_pipeline,
+            ratio_buffer,
+            ratio_bind_group,
         }
     }
 
@@ -145,7 +179,13 @@ impl Application {
             self.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
+
             self.surface.configure(&self.device, &self.config);
+            self.queue.write_buffer(
+                &self.ratio_buffer,
+                0,
+                bytemuck::cast_slice(&[self.size.width, self.size.height]),
+            );
         }
     }
 
@@ -190,7 +230,10 @@ impl Application {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.ratio_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.ratio_buffer.slice(..));
             render_pass.draw(0..3, 0..1);
+            render_pass.draw(3..6, 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
