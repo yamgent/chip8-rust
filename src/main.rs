@@ -1,14 +1,17 @@
+use std::{cmp::Ordering, ops::Range};
+
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     Backends, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, BindingType, BlendState, Buffer, BufferBindingType, BufferUsages,
-    ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompositeAlphaMode, Device,
-    DeviceDescriptor, Face, Features, FragmentState, FrontFace, Instance, Limits, LoadOp,
+    BindGroupLayoutEntry, BindingType, BlendState, Buffer, BufferAddress, BufferBindingType,
+    BufferUsages, ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompositeAlphaMode,
+    Device, DeviceDescriptor, Face, Features, FragmentState, FrontFace, Instance, Limits, LoadOp,
     MultisampleState, Operations, PipelineLayoutDescriptor, PolygonMode, PowerPreference,
     PresentMode, PrimitiveState, PrimitiveTopology, Queue, RenderPassColorAttachment,
     RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions,
     ShaderModuleDescriptor, ShaderSource, ShaderStages, Surface, SurfaceConfiguration,
-    SurfaceError, TextureUsages, TextureViewDescriptor, VertexState,
+    SurfaceError, TextureUsages, TextureViewDescriptor, VertexAttribute, VertexBufferLayout,
+    VertexFormat, VertexState, VertexStepMode,
 };
 use winit::{
     dpi::PhysicalSize,
@@ -25,9 +28,24 @@ struct Application {
     size: PhysicalSize<u32>,
     color: wgpu::Color,
     render_pipeline: RenderPipeline,
+    vertex_buffer: Buffer,
     ratio_buffer: Buffer,
     ratio_bind_group: BindGroup,
 }
+
+fn calculate_screen_ratio(size: &PhysicalSize<u32>) -> [f32; 2] {
+    match (size.height * 2).cmp(&size.width) {
+        Ordering::Equal => [1.0, 1.0],
+        Ordering::Greater => [1.0, (size.width as f32 * 0.5) / (size.height as f32)],
+        Ordering::Less => [(size.height as f32 * 2.0) / (size.width as f32), 1.0],
+    }
+}
+
+const SCREEN_VERTICES: [f32; 12] = [
+    -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0, -1.0, -1.0, 1.0, -1.0,
+];
+
+const SCREEN_VERTICES_INDICES: [Range<u32>; 2] = [0..3, 3..6];
 
 impl Application {
     async fn new(window: &Window) -> Self {
@@ -78,10 +96,25 @@ impl Application {
 
         surface.configure(&device, &config);
 
+        let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(&SCREEN_VERTICES),
+            usage: BufferUsages::VERTEX,
+        });
+        let vertex_buffer_layout = VertexBufferLayout {
+            array_stride: std::mem::size_of::<[f32; 2]>() as BufferAddress,
+            step_mode: VertexStepMode::Vertex,
+            attributes: &[VertexAttribute {
+                offset: 0,
+                shader_location: 0,
+                format: VertexFormat::Float32x2,
+            }],
+        };
+
         let ratio_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Ratio Buffer"),
-            contents: bytemuck::cast_slice(&[size.width, size.height]),
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::VERTEX,
+            contents: bytemuck::cast_slice(&calculate_screen_ratio(&size)),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
         let ratio_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             entries: &[BindGroupLayoutEntry {
@@ -120,7 +153,7 @@ impl Application {
             vertex: VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[],
+                buffers: &[vertex_buffer_layout],
             },
             fragment: Some(FragmentState {
                 module: &shader,
@@ -162,6 +195,7 @@ impl Application {
                 a: 1.0,
             },
             render_pipeline,
+            vertex_buffer,
             ratio_buffer,
             ratio_bind_group,
         }
@@ -184,7 +218,7 @@ impl Application {
             self.queue.write_buffer(
                 &self.ratio_buffer,
                 0,
-                bytemuck::cast_slice(&[self.size.width, self.size.height]),
+                bytemuck::cast_slice(&calculate_screen_ratio(&self.size)),
             );
         }
     }
@@ -230,10 +264,11 @@ impl Application {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_bind_group(0, &self.ratio_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.ratio_buffer.slice(..));
-            render_pass.draw(0..3, 0..1);
-            render_pass.draw(3..6, 0..1);
+            SCREEN_VERTICES_INDICES.iter().for_each(|indices| {
+                render_pass.draw(indices.clone(), 0..1);
+            });
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
