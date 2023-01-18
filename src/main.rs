@@ -5,13 +5,13 @@ use wgpu::{
     Backends, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingType, BlendState, Buffer, BufferAddress, BufferBindingType,
     BufferUsages, ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompositeAlphaMode,
-    Device, DeviceDescriptor, Face, Features, FragmentState, FrontFace, Instance, Limits, LoadOp,
-    MultisampleState, Operations, PipelineLayoutDescriptor, PolygonMode, PowerPreference,
-    PresentMode, PrimitiveState, PrimitiveTopology, Queue, RenderPassColorAttachment,
-    RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions,
-    ShaderModuleDescriptor, ShaderSource, ShaderStages, Surface, SurfaceConfiguration,
-    SurfaceError, TextureUsages, TextureViewDescriptor, VertexAttribute, VertexBufferLayout,
-    VertexFormat, VertexState, VertexStepMode,
+    Device, DeviceDescriptor, Face, Features, FragmentState, FrontFace, IndexFormat, Instance,
+    Limits, LoadOp, MultisampleState, Operations, PipelineLayoutDescriptor, PolygonMode,
+    PowerPreference, PresentMode, PrimitiveState, PrimitiveTopology, Queue,
+    RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
+    RequestAdapterOptions, ShaderModuleDescriptor, ShaderSource, ShaderStages, Surface,
+    SurfaceConfiguration, SurfaceError, TextureUsages, TextureViewDescriptor, VertexAttribute,
+    VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
 };
 use winit::{
     dpi::PhysicalSize,
@@ -29,6 +29,8 @@ struct Application {
     color: wgpu::Color,
     render_pipeline: RenderPipeline,
     vertex_buffer: Buffer,
+    index_buffer: Buffer,
+    num_indices: u32,
     ratio_buffer: Buffer,
     ratio_bind_group: BindGroup,
 }
@@ -41,11 +43,8 @@ fn calculate_screen_ratio(size: &PhysicalSize<u32>) -> [f32; 2] {
     }
 }
 
-const SCREEN_VERTICES: [f32; 12] = [
-    -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0, -1.0, -1.0, 1.0, -1.0,
-];
-
-const SCREEN_VERTICES_INDICES: [Range<u32>; 2] = [0..3, 3..6];
+const SCREEN_VERTICES: [f32; 8] = [-1.0, 1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0];
+const SCREEN_INDICES: [u16; 6] = [0, 1, 3, 3, 1, 2];
 
 impl Application {
     async fn new(window: &Window) -> Self {
@@ -110,6 +109,13 @@ impl Application {
                 format: VertexFormat::Float32x2,
             }],
         };
+
+        let index_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(&SCREEN_INDICES),
+            usage: BufferUsages::INDEX,
+        });
+        let num_indices = SCREEN_INDICES.len() as u32;
 
         let ratio_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Ratio Buffer"),
@@ -196,6 +202,8 @@ impl Application {
             },
             render_pipeline,
             vertex_buffer,
+            index_buffer,
+            num_indices,
             ratio_buffer,
             ratio_bind_group,
         }
@@ -264,11 +272,10 @@ impl Application {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_bind_group(0, &self.ratio_bind_group, &[]);
-            SCREEN_VERTICES_INDICES.iter().for_each(|indices| {
-                render_pass.draw(indices.clone(), 0..1);
-            });
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), IndexFormat::Uint16);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
