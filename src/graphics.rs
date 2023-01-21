@@ -405,7 +405,7 @@ impl Graphics {
                     * self.screen_texture_size.height) as usize,
             );
             update.iter().for_each(|pixels| {
-                let mut mask = 0x80;
+                let mut mask = 1u64 << 63;
                 while mask > 0 {
                     if pixels & mask != 0 {
                         final_pixels.push(255);

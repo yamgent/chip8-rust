@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     sync::mpsc::Sender,
     time::{Duration, Instant},
 };
@@ -11,7 +12,7 @@ const FONT_END_POS: usize = 0x9F;
 
 const INSTRUCTIONS_PER_SECOND: usize = 700;
 
-pub type CpuScreenMem = [u8; 256];
+pub type CpuScreenMem = [u64; 32];
 
 pub struct Cpu {
     memory: [u8; MEMORY_SIZE],
@@ -19,7 +20,7 @@ pub struct Cpu {
     screen_update_sender: Sender<CpuScreenMem>,
 
     program_counter: usize,
-    index_register: u16,
+    index_register: usize,
     variable_registers: [u8; 16],
 }
 
@@ -67,7 +68,7 @@ impl Cpu {
             0xF0, 0x80, 0xF0, 0x80, 0x80, // F
         ]);
 
-        let screen_pixels = [0u8; 256];
+        let screen_pixels = [0; 32];
         let program_counter = PROGRAM_INIT_LOAD_POS;
         let index_register = 0;
         let variable_registers = [0; 16];
@@ -109,7 +110,7 @@ impl Cpu {
             match op {
                 0x0 => {
                     if nnn == 0xE0 {
-                        self.screen_pixels = [0; 256];
+                        self.screen_pixels = [0; 32];
                         self.send_screen_update();
                     }
                 }
@@ -123,7 +124,32 @@ impl Cpu {
                     self.variable_registers[x] = self.variable_registers[x].wrapping_add(nn);
                 }
                 0xA => {
-                    self.index_register = nnn;
+                    self.index_register = nnn as usize;
+                }
+                0xD => {
+                    let x_start = (self.variable_registers[x] % 64) as u16;
+                    let y_start = (self.variable_registers[y] % 32) as u16;
+                    self.variable_registers[0xF] = 0;
+
+                    let total_len = self.screen_pixels.len();
+                    (y_start..(y_start + n as u16))
+                        .into_iter()
+                        .filter(|y| (*y as usize) < total_len)
+                        .for_each(|y| {
+                            let nth_byte =
+                                self.memory[self.index_register + ((y - y_start) as usize)] as u64;
+                            let mask = match x_start.cmp(&56) {
+                                Ordering::Equal => nth_byte,
+                                Ordering::Less => nth_byte << (56 - x_start),
+                                Ordering::Greater => nth_byte >> (x_start - 56),
+                            };
+                            let is_updated = (mask & self.screen_pixels[y as usize]) != 0;
+                            if is_updated {
+                                self.variable_registers[0xF] = 1;
+                            }
+                            self.screen_pixels[y as usize] ^= mask;
+                        });
+                    self.send_screen_update();
                 }
                 _ =>
                 // TODO: Eventually should be changed to unreachable!()
