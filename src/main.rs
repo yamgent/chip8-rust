@@ -1,16 +1,19 @@
-use std::{cmp::Ordering, ops::Range};
+use std::cmp::Ordering;
 
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    Backends, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, BindingType, BlendState, Buffer, BufferAddress, BufferBindingType,
-    BufferUsages, ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompositeAlphaMode,
-    Device, DeviceDescriptor, Face, Features, FragmentState, FrontFace, IndexFormat, Instance,
-    Limits, LoadOp, MultisampleState, Operations, PipelineLayoutDescriptor, PolygonMode,
-    PowerPreference, PresentMode, PrimitiveState, PrimitiveTopology, Queue,
+    AddressMode, Backends, BindGroup, BindGroupDescriptor, BindGroupEntry,
+    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BlendState,
+    Buffer, BufferAddress, BufferBindingType, BufferUsages, ColorTargetState, ColorWrites,
+    CommandEncoderDescriptor, CompositeAlphaMode, Device, DeviceDescriptor, Extent3d, Face,
+    Features, FilterMode, FragmentState, FrontFace, ImageCopyTexture, ImageDataLayout, IndexFormat,
+    Instance, Limits, LoadOp, MultisampleState, Operations, Origin3d, PipelineLayoutDescriptor,
+    PolygonMode, PowerPreference, PresentMode, PrimitiveState, PrimitiveTopology, Queue,
     RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
-    RequestAdapterOptions, ShaderModuleDescriptor, ShaderSource, ShaderStages, Surface,
-    SurfaceConfiguration, SurfaceError, TextureUsages, TextureViewDescriptor, VertexAttribute,
+    RequestAdapterOptions, SamplerBindingType, SamplerDescriptor, ShaderModuleDescriptor,
+    ShaderSource, ShaderStages, Surface, SurfaceConfiguration, SurfaceError, Texture,
+    TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType,
+    TextureUsages, TextureViewDescriptor, TextureViewDimension, VertexAttribute,
     VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
 };
 use winit::{
@@ -33,6 +36,8 @@ struct Application {
     num_indices: u32,
     ratio_buffer: Buffer,
     ratio_bind_group: BindGroup,
+    screen_texture: Texture,
+    screen_texture_bind_group: BindGroup,
 }
 
 fn calculate_screen_ratio(size: &PhysicalSize<u32>) -> [f32; 2] {
@@ -43,7 +48,31 @@ fn calculate_screen_ratio(size: &PhysicalSize<u32>) -> [f32; 2] {
     }
 }
 
-const SCREEN_VERTICES: [f32; 8] = [-1.0, 1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0];
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    position: [f32; 2],
+    tex_coords: [f32; 2],
+}
+
+const SCREEN_VERTICES: [Vertex; 4] = [
+    Vertex {
+        position: [-1.0, 1.0],
+        tex_coords: [0.0, 0.0],
+    },
+    Vertex {
+        position: [-1.0, -1.0],
+        tex_coords: [0.0, 1.0],
+    },
+    Vertex {
+        position: [1.0, -1.0],
+        tex_coords: [1.0, 1.0],
+    },
+    Vertex {
+        position: [1.0, 1.0],
+        tex_coords: [1.0, 0.0],
+    },
+];
 const SCREEN_INDICES: [u16; 6] = [0, 1, 3, 3, 1, 2];
 
 impl Application {
@@ -101,13 +130,20 @@ impl Application {
             usage: BufferUsages::VERTEX,
         });
         let vertex_buffer_layout = VertexBufferLayout {
-            array_stride: std::mem::size_of::<[f32; 2]>() as BufferAddress,
+            array_stride: std::mem::size_of::<Vertex>() as BufferAddress,
             step_mode: VertexStepMode::Vertex,
-            attributes: &[VertexAttribute {
-                offset: 0,
-                shader_location: 0,
-                format: VertexFormat::Float32x2,
-            }],
+            attributes: &[
+                VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: VertexFormat::Float32x2,
+                },
+                VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 2]>() as BufferAddress,
+                    shader_location: 1,
+                    format: VertexFormat::Float32x2,
+                },
+            ],
         };
 
         let index_buffer = device.create_buffer_init(&BufferInitDescriptor {
@@ -144,13 +180,126 @@ impl Application {
             label: Some("ratio_bind_group"),
         });
 
+        let screen_texture_size = Extent3d {
+            width: 64,
+            height: 32,
+            depth_or_array_layers: 1,
+        };
+        let screen_texture = device.create_texture(&TextureDescriptor {
+            label: Some("Screen Texture"),
+            size: screen_texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+        });
+
+        let mut initial_pixels = std::iter::repeat(255u8)
+            .take((4 * screen_texture_size.width * screen_texture_size.height) as usize)
+            .collect::<Vec<_>>();
+
+        initial_pixels[0] = 0;
+        initial_pixels[1] = 0;
+        initial_pixels[2] = 0;
+
+        initial_pixels[4] = 255;
+        initial_pixels[5] = 0;
+        initial_pixels[6] = 0;
+
+        initial_pixels[8] = 0;
+        initial_pixels[9] = 255;
+        initial_pixels[10] = 0;
+
+        initial_pixels[12] = 0;
+        initial_pixels[13] = 0;
+        initial_pixels[14] = 255;
+
+        initial_pixels[(4 * screen_texture_size.width as usize) - 4] = 255;
+        initial_pixels[(4 * screen_texture_size.width as usize) - 3] = 255;
+        initial_pixels[(4 * screen_texture_size.width as usize) - 2] = 0;
+
+        initial_pixels
+            [(4 * screen_texture_size.width as usize * screen_texture_size.height as usize) - 4] =
+            0;
+        initial_pixels
+            [(4 * screen_texture_size.width as usize * screen_texture_size.height as usize) - 3] =
+            255;
+        initial_pixels
+            [(4 * screen_texture_size.width as usize * screen_texture_size.height as usize) - 2] =
+            255;
+
+        queue.write_texture(
+            ImageCopyTexture {
+                texture: &screen_texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: TextureAspect::All,
+            },
+            &initial_pixels,
+            ImageDataLayout {
+                offset: 0,
+                bytes_per_row: std::num::NonZeroU32::new(4 * screen_texture_size.width),
+                rows_per_image: std::num::NonZeroU32::new(screen_texture_size.height),
+            },
+            screen_texture_size,
+        );
+
+        let screen_texture_view = screen_texture.create_view(&TextureViewDescriptor::default());
+        let screen_texture_sampler = device.create_sampler(&SamplerDescriptor {
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: FilterMode::Nearest,
+            min_filter: FilterMode::Nearest,
+            mipmap_filter: FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let screen_texture_bind_group_layout =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("screen_texture_bind_group_layout"),
+                entries: &[
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: TextureViewDimension::D2,
+                            sample_type: TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+        let screen_texture_bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("screen_texture_bind_group"),
+            layout: &screen_texture_bind_group_layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureView(&screen_texture_view),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::Sampler(&screen_texture_sampler),
+                },
+            ],
+        });
+
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("Shader"),
             source: ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
         let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[&ratio_bind_group_layout],
+            bind_group_layouts: &[&ratio_bind_group_layout, &screen_texture_bind_group_layout],
             push_constant_ranges: &[],
         });
         let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -206,6 +355,8 @@ impl Application {
             num_indices,
             ratio_buffer,
             ratio_bind_group,
+            screen_texture,
+            screen_texture_bind_group,
         }
     }
 
@@ -275,6 +426,7 @@ impl Application {
             render_pass.set_bind_group(0, &self.ratio_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), IndexFormat::Uint16);
+            render_pass.set_bind_group(1, &self.screen_texture_bind_group, &[]);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         }
 
