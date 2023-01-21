@@ -30,7 +30,7 @@ impl Application {
         let graphics = Graphics::new(window, rx).await;
         // TODO: A better way of handling the program, rather than just using unwrap?
         std::thread::spawn(move || {
-            let cpu = Cpu::new(program, tx).unwrap();
+            let mut cpu = Cpu::new(program, tx).unwrap();
             cpu.run();
         });
 

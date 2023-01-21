@@ -1,4 +1,7 @@
-use std::{sync::mpsc::Sender, time::Duration};
+use std::{
+    sync::mpsc::Sender,
+    time::{Duration, Instant},
+};
 
 const MEMORY_SIZE: usize = 4096;
 const PROGRAM_INIT_LOAD_POS: usize = 0x200;
@@ -6,11 +9,18 @@ const MAX_ALLOWED_PROGRAM_SIZE: usize = MEMORY_SIZE - PROGRAM_INIT_LOAD_POS;
 const FONT_START_POS: usize = 0x50;
 const FONT_END_POS: usize = 0x9F;
 
+const INSTRUCTIONS_PER_SECOND: usize = 700;
+
 pub type CpuScreenMem = [u8; 256];
 
 pub struct Cpu {
     memory: [u8; MEMORY_SIZE],
+    screen_pixels: CpuScreenMem,
     screen_update_sender: Sender<CpuScreenMem>,
+
+    program_counter: usize,
+    index_register: u16,
+    variable_registers: [u8; 16],
 }
 
 #[derive(Debug)]
@@ -57,29 +67,75 @@ impl Cpu {
             0xF0, 0x80, 0xF0, 0x80, 0x80, // F
         ]);
 
+        let screen_pixels = [0u8; 256];
+        let program_counter = PROGRAM_INIT_LOAD_POS;
+        let index_register = 0;
+        let variable_registers = [0; 16];
+
         Ok(Self {
             memory,
+            screen_pixels,
             screen_update_sender,
+            program_counter,
+            index_register,
+            variable_registers,
         })
     }
 
-    pub fn run(&self) {
-        // TODO: Actual interpreter
-        let mut pixels = [0u8; 256];
-        let mut current = 0;
-        pixels[current] = 0x80;
+    fn send_screen_update(&self) {
+        self.screen_update_sender
+            .send(self.screen_pixels)
+            .expect("Update screen failed!");
+    }
+
+    pub fn run(&mut self) {
+        let duration_per_instruction: Duration =
+            Duration::from_secs_f32(1f32 / INSTRUCTIONS_PER_SECOND as f32);
 
         loop {
-            pixels[current] >>= 1;
-            if pixels[current] == 0 {
-                current = (current + 1) % pixels.len();
-                pixels[current] = 0x80;
-            }
-            self.screen_update_sender
-                .send(pixels)
-                .expect("Update screen failed!");
+            let start_time = Instant::now();
 
-            std::thread::sleep(Duration::from_millis(250));
+            let instructions = ((self.memory[self.program_counter] as u16) << 8)
+                + self.memory[self.program_counter + 1] as u16;
+            self.program_counter += 2;
+
+            let op = ((instructions & 0xF000) >> 12) as u8;
+            let x = ((instructions & 0x0F00) >> 8) as usize;
+            let y = ((instructions & 0x00F0) >> 4) as usize;
+            let n = (instructions & 0x000F) as u8;
+            let nn = (instructions & 0x00FF) as u8;
+            let nnn = instructions & 0x0FFF;
+
+            match op {
+                0x0 => {
+                    if nnn == 0xE0 {
+                        self.screen_pixels = [0; 256];
+                        self.send_screen_update();
+                    }
+                }
+                0x1 => {
+                    self.program_counter = nnn as usize;
+                }
+                0x6 => {
+                    self.variable_registers[x] = nn;
+                }
+                0x7 => {
+                    self.variable_registers[x] = self.variable_registers[x].wrapping_add(nn);
+                }
+                0xA => {
+                    self.index_register = nnn;
+                }
+                _ =>
+                // TODO: Eventually should be changed to unreachable!()
+                {
+                    unimplemented!()
+                }
+            }
+
+            let elapsed = start_time.elapsed();
+            if elapsed < duration_per_instruction {
+                std::thread::sleep(duration_per_instruction - elapsed);
+            }
         }
     }
 }
