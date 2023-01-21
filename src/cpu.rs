@@ -1,11 +1,16 @@
+use std::{sync::mpsc::Sender, time::Duration};
+
 const MEMORY_SIZE: usize = 4096;
 const PROGRAM_INIT_LOAD_POS: usize = 0x200;
 const MAX_ALLOWED_PROGRAM_SIZE: usize = MEMORY_SIZE - PROGRAM_INIT_LOAD_POS;
 const FONT_START_POS: usize = 0x50;
 const FONT_END_POS: usize = 0x9F;
 
+pub type CpuScreenMem = [u8; 256];
+
 pub struct Cpu {
     memory: [u8; MEMORY_SIZE],
+    screen_update_sender: Sender<CpuScreenMem>,
 }
 
 #[derive(Debug)]
@@ -14,7 +19,10 @@ pub enum InitCpuError {
 }
 
 impl Cpu {
-    pub fn new(program: &[u8]) -> Result<Self, InitCpuError> {
+    pub fn new(
+        program: Vec<u8>,
+        screen_update_sender: Sender<CpuScreenMem>,
+    ) -> Result<Self, InitCpuError> {
         let mut memory = [0; MEMORY_SIZE];
 
         // insert program to memory
@@ -26,7 +34,7 @@ impl Cpu {
         }
 
         memory[PROGRAM_INIT_LOAD_POS..(PROGRAM_INIT_LOAD_POS + program.len())]
-            .copy_from_slice(program);
+            .copy_from_slice(&program);
 
         // insert font to memory
         // font taken from https://tobiasvl.github.io/blog/write-a-chip-8-emulator/
@@ -49,6 +57,29 @@ impl Cpu {
             0xF0, 0x80, 0xF0, 0x80, 0x80, // F
         ]);
 
-        Ok(Self { memory })
+        Ok(Self {
+            memory,
+            screen_update_sender,
+        })
+    }
+
+    pub fn run(&self) {
+        // TODO: Actual interpreter
+        let mut pixels = [0u8; 256];
+        let mut current = 0;
+        pixels[current] = 0x80;
+
+        loop {
+            pixels[current] >>= 1;
+            if pixels[current] == 0 {
+                current = (current + 1) % pixels.len();
+                pixels[current] = 0x80;
+            }
+            self.screen_update_sender
+                .send(pixels)
+                .expect("Update screen failed!");
+
+            std::thread::sleep(Duration::from_millis(250));
+        }
     }
 }

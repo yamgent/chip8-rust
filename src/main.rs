@@ -19,20 +19,24 @@ struct Args {
 struct Application {
     window_size: PhysicalSize<u32>,
     graphics: Graphics,
-    cpu: Cpu,
 }
 
 impl Application {
-    async fn new(window: &Window, program: &[u8]) -> Self {
+    async fn new(window: &Window, program: Vec<u8>) -> Self {
         let window_size = window.inner_size();
-        let graphics = Graphics::new(window).await;
+
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        let graphics = Graphics::new(window, rx).await;
         // TODO: A better way of handling the program, rather than just using unwrap?
-        let cpu = Cpu::new(program).unwrap();
+        std::thread::spawn(move || {
+            let cpu = Cpu::new(program, tx).unwrap();
+            cpu.run();
+        });
 
         Self {
             window_size,
             graphics,
-            cpu,
         }
     }
 
@@ -76,12 +80,10 @@ async fn run() {
         .build(&event_loop)
         .expect("Failed to build window");
 
-    let mut application = Application::new(&window, &program).await;
+    let mut application = Application::new(&window, program).await;
 
     event_loop.run(move |event, _, control_flow| {
-        // it is ok to wait until we have the next re-draw, no need to keep
-        // spinning
-        *control_flow = ControlFlow::Wait;
+        *control_flow = ControlFlow::Poll;
 
         match event {
             Event::WindowEvent {

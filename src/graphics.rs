@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::{cmp::Ordering, sync::mpsc::Receiver};
 
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
@@ -18,11 +18,18 @@ use wgpu::{
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
+use crate::cpu::CpuScreenMem;
+
+const SCREEN_PX_WIDTH: usize = 64;
+const SCREEN_PX_HEIGHT: usize = 32;
+const SCREEN_PX_STRIDE: usize = 4;
+
 pub struct Graphics {
     surface: Surface,
     device: Device,
     queue: Queue,
     config: SurfaceConfiguration,
+    // TODO: Rename it to window_size, in order to not confuse it with screen pixels?
     size: PhysicalSize<u32>,
     render_pipeline: RenderPipeline,
     vertex_buffer: Buffer,
@@ -30,8 +37,10 @@ pub struct Graphics {
     num_indices: u32,
     ratio_buffer: Buffer,
     ratio_bind_group: BindGroup,
+    screen_texture_size: Extent3d,
     screen_texture: Texture,
     screen_texture_bind_group: BindGroup,
+    screen_update_receiver: Receiver<CpuScreenMem>,
 }
 
 fn calculate_screen_ratio(size: &PhysicalSize<u32>) -> [f32; 2] {
@@ -71,7 +80,7 @@ const SCREEN_INDICES: [u16; 6] = [0, 1, 3, 3, 1, 2];
 
 // must only be created and maintained by the main thread
 impl Graphics {
-    pub async fn new(window: &Window) -> Self {
+    pub async fn new(window: &Window, screen_update_receiver: Receiver<CpuScreenMem>) -> Self {
         let size = window.inner_size();
 
         let instance = Instance::new(Backends::all());
@@ -176,8 +185,8 @@ impl Graphics {
         });
 
         let screen_texture_size = Extent3d {
-            width: 64,
-            height: 32,
+            width: SCREEN_PX_WIDTH as u32,
+            height: SCREEN_PX_HEIGHT as u32,
             depth_or_array_layers: 1,
         };
         let screen_texture = device.create_texture(&TextureDescriptor {
@@ -191,7 +200,10 @@ impl Graphics {
         });
 
         let mut initial_pixels = std::iter::repeat(255u8)
-            .take((4 * screen_texture_size.width * screen_texture_size.height) as usize)
+            .take(
+                (SCREEN_PX_STRIDE as u32 * screen_texture_size.width * screen_texture_size.height)
+                    as usize,
+            )
             .collect::<Vec<_>>();
 
         initial_pixels[0] = 0;
@@ -210,19 +222,22 @@ impl Graphics {
         initial_pixels[13] = 0;
         initial_pixels[14] = 255;
 
-        initial_pixels[(4 * screen_texture_size.width as usize) - 4] = 255;
-        initial_pixels[(4 * screen_texture_size.width as usize) - 3] = 255;
-        initial_pixels[(4 * screen_texture_size.width as usize) - 2] = 0;
+        initial_pixels[(SCREEN_PX_STRIDE * screen_texture_size.width as usize) - 4] = 255;
+        initial_pixels[(SCREEN_PX_STRIDE * screen_texture_size.width as usize) - 3] = 255;
+        initial_pixels[(SCREEN_PX_STRIDE * screen_texture_size.width as usize) - 2] = 0;
 
-        initial_pixels
-            [(4 * screen_texture_size.width as usize * screen_texture_size.height as usize) - 4] =
-            0;
-        initial_pixels
-            [(4 * screen_texture_size.width as usize * screen_texture_size.height as usize) - 3] =
-            255;
-        initial_pixels
-            [(4 * screen_texture_size.width as usize * screen_texture_size.height as usize) - 2] =
-            255;
+        initial_pixels[(SCREEN_PX_STRIDE
+            * screen_texture_size.width as usize
+            * screen_texture_size.height as usize)
+            - SCREEN_PX_STRIDE] = 0;
+        initial_pixels[(SCREEN_PX_STRIDE
+            * screen_texture_size.width as usize
+            * screen_texture_size.height as usize)
+            - 3] = 255;
+        initial_pixels[(SCREEN_PX_STRIDE
+            * screen_texture_size.width as usize
+            * screen_texture_size.height as usize)
+            - 2] = 255;
 
         queue.write_texture(
             ImageCopyTexture {
@@ -234,7 +249,9 @@ impl Graphics {
             &initial_pixels,
             ImageDataLayout {
                 offset: 0,
-                bytes_per_row: std::num::NonZeroU32::new(4 * screen_texture_size.width),
+                bytes_per_row: std::num::NonZeroU32::new(
+                    SCREEN_PX_STRIDE as u32 * screen_texture_size.width,
+                ),
                 rows_per_image: std::num::NonZeroU32::new(screen_texture_size.height),
             },
             screen_texture_size,
@@ -344,8 +361,10 @@ impl Graphics {
             num_indices,
             ratio_buffer,
             ratio_bind_group,
+            screen_texture_size,
             screen_texture,
             screen_texture_bind_group,
+            screen_update_receiver,
         }
     }
 
@@ -371,7 +390,61 @@ impl Graphics {
         );
     }
 
+    fn handle_screen_updates(&mut self) {
+        // TODO: Can this be improved for performance?
+        let mut final_update = None;
+
+        while let Ok(update) = self.screen_update_receiver.try_recv() {
+            final_update = Some(update);
+        }
+
+        if let Some(update) = final_update {
+            let mut final_pixels: Vec<u8> = Vec::with_capacity(
+                (SCREEN_PX_STRIDE as u32
+                    * self.screen_texture_size.width
+                    * self.screen_texture_size.height) as usize,
+            );
+            update.iter().for_each(|pixels| {
+                let mut mask = 0x80;
+                while mask > 0 {
+                    if pixels & mask != 0 {
+                        final_pixels.push(255);
+                        final_pixels.push(255);
+                        final_pixels.push(255);
+                        final_pixels.push(255);
+                    } else {
+                        final_pixels.push(0);
+                        final_pixels.push(0);
+                        final_pixels.push(0);
+                        final_pixels.push(255);
+                    }
+                    mask >>= 1;
+                }
+            });
+
+            self.queue.write_texture(
+                ImageCopyTexture {
+                    texture: &self.screen_texture,
+                    mip_level: 0,
+                    origin: Origin3d::ZERO,
+                    aspect: TextureAspect::All,
+                },
+                &final_pixels,
+                ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: std::num::NonZeroU32::new(
+                        SCREEN_PX_STRIDE as u32 * self.screen_texture_size.width,
+                    ),
+                    rows_per_image: std::num::NonZeroU32::new(self.screen_texture_size.height),
+                },
+                self.screen_texture_size,
+            );
+        }
+    }
+
     pub fn render(&mut self) -> Result<(), SurfaceError> {
+        self.handle_screen_updates();
+
         let output = self.surface.get_current_texture()?;
 
         let view = output
