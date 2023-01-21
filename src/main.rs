@@ -1,4 +1,7 @@
-use chip8_rust::graphics::Graphics;
+use std::{fs::File, io::Read};
+
+use chip8_rust::{cpu::Cpu, graphics::Graphics};
+use clap::Parser;
 use wgpu::SurfaceError;
 use winit::{
     dpi::PhysicalSize,
@@ -7,19 +10,29 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
+#[derive(Parser, Debug)]
+struct Args {
+    #[arg(short, long)]
+    path: String,
+}
+
 struct Application {
     window_size: PhysicalSize<u32>,
     graphics: Graphics,
+    cpu: Cpu,
 }
 
 impl Application {
-    async fn new(window: &Window) -> Self {
+    async fn new(window: &Window, program: &[u8]) -> Self {
         let window_size = window.inner_size();
         let graphics = Graphics::new(window).await;
+        // TODO: A better way of handling the program, rather than just using unwrap?
+        let cpu = Cpu::new(program).unwrap();
 
         Self {
             window_size,
             graphics,
+            cpu,
         }
     }
 
@@ -40,14 +53,30 @@ impl Application {
 }
 
 async fn run() {
+    let args = Args::parse();
+
     env_logger::init();
+
+    let mut program_file = match File::open(&args.path) {
+        Ok(file) => file,
+        Err(err) => {
+            eprintln!("Cannot open program {:?}: {:?}", args.path, err);
+            return;
+        }
+    };
+
+    let mut program = Vec::new();
+    if let Err(err) = program_file.read_to_end(&mut program) {
+        eprintln!("Read program {:?} failed: {:?}", args.path, err);
+        return;
+    }
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .build(&event_loop)
         .expect("Failed to build window");
 
-    let mut application = Application::new(&window).await;
+    let mut application = Application::new(&window, &program).await;
 
     event_loop.run(move |event, _, control_flow| {
         // it is ok to wait until we have the next re-draw, no need to keep
