@@ -21,6 +21,7 @@ pub struct Cpu {
 
     program_counter: usize,
     index_register: usize,
+    stack: Vec<u16>,
     variable_registers: [u8; 16],
 }
 
@@ -71,6 +72,7 @@ impl Cpu {
         let screen_pixels = [0; 32];
         let program_counter = PROGRAM_INIT_LOAD_POS;
         let index_register = 0;
+        let stack = Vec::with_capacity(16);
         let variable_registers = [0; 16];
 
         Ok(Self {
@@ -79,6 +81,7 @@ impl Cpu {
             screen_update_sender,
             program_counter,
             index_register,
+            stack,
             variable_registers,
         })
     }
@@ -112,9 +115,21 @@ impl Cpu {
                     if nnn == 0xE0 {
                         self.screen_pixels = [0; 32];
                         self.send_screen_update();
+                    } else if nnn == 0xEE {
+                        self.program_counter = self
+                            .stack
+                            .pop()
+                            .expect("Should not call 0x00EE on an empty stack.")
+                            as usize;
+                    } else {
+                        panic!("{:#06x} might be a call to a machine assembly routine, but this emulator does not support that.", instructions);
                     }
                 }
                 0x1 => {
+                    self.program_counter = nnn as usize;
+                }
+                0x2 => {
+                    self.stack.push(self.program_counter as u16);
                     self.program_counter = nnn as usize;
                 }
                 0x6 => {
