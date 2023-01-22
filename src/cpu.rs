@@ -4,6 +4,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use rand::{rngs::ThreadRng, Rng};
+
 const MEMORY_SIZE: usize = 4096;
 const PROGRAM_INIT_LOAD_POS: usize = 0x200;
 const MAX_ALLOWED_PROGRAM_SIZE: usize = MEMORY_SIZE - PROGRAM_INIT_LOAD_POS;
@@ -18,6 +20,7 @@ pub struct Cpu {
     memory: [u8; MEMORY_SIZE],
     screen_pixels: CpuScreenMem,
     screen_update_sender: Sender<CpuScreenMem>,
+    rng: ThreadRng,
 
     program_counter: usize,
     index_register: usize,
@@ -70,6 +73,8 @@ impl Cpu {
         ]);
 
         let screen_pixels = [0; 32];
+        let rng = rand::thread_rng();
+
         let program_counter = PROGRAM_INIT_LOAD_POS;
         let index_register = 0;
         let stack = Vec::with_capacity(16);
@@ -79,6 +84,7 @@ impl Cpu {
             memory,
             screen_pixels,
             screen_update_sender,
+            rng,
             program_counter,
             index_register,
             stack,
@@ -220,6 +226,9 @@ impl Cpu {
                 0xB => {
                     // TODO: Ambiguous instruction - provide configuration
                     self.program_counter = nnn as usize + self.variable_registers[0x0] as usize;
+                }
+                0xC => {
+                    self.variable_registers[x] = self.rng.gen::<u8>() & nn;
                 }
                 0xD => {
                     let x_start = (self.variable_registers[x] % 64) as u16;
