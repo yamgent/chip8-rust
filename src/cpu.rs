@@ -105,16 +105,16 @@ impl Cpu {
         loop {
             let start_time = Instant::now();
 
-            let instructions = ((self.memory[self.program_counter] as u16) << 8)
+            let instruction = ((self.memory[self.program_counter] as u16) << 8)
                 + self.memory[self.program_counter + 1] as u16;
             self.program_counter += 2;
 
-            let op = ((instructions & 0xF000) >> 12) as u8;
-            let x = ((instructions & 0x0F00) >> 8) as usize;
-            let y = ((instructions & 0x00F0) >> 4) as usize;
-            let n = (instructions & 0x000F) as u8;
-            let nn = (instructions & 0x00FF) as u8;
-            let nnn = instructions & 0x0FFF;
+            let op = ((instruction & 0xF000) >> 12) as u8;
+            let x = ((instruction & 0x0F00) >> 8) as usize;
+            let y = ((instruction & 0x00F0) >> 4) as usize;
+            let n = (instruction & 0x000F) as u8;
+            let nn = (instruction & 0x00FF) as u8;
+            let nnn = instruction & 0x0FFF;
 
             let mut skip = false;
 
@@ -130,7 +130,7 @@ impl Cpu {
                             .expect("Should not call 0x00EE on an empty stack.")
                             as usize;
                     } else {
-                        panic!("{:#06x} might be a call to a machine assembly routine, but this emulator does not support that.", instructions);
+                        panic!("{:#06x} might be a call to a machine assembly routine, but this emulator does not support that.", instruction);
                     }
                 }
                 0x1 => {
@@ -212,7 +212,7 @@ impl Cpu {
                         self.variable_registers[x] <<= 1;
                     }
                     _ => {
-                        panic!("{:#06x} is not a valid instruction.", instructions);
+                        panic!("{:#06x} is not a valid 0x8 instruction.", instruction);
                     }
                 },
                 0x9 => {
@@ -255,10 +255,16 @@ impl Cpu {
                         });
                     self.send_screen_update();
                 }
-                _ =>
-                // TODO: Eventually should be changed to unreachable!()
-                {
-                    unimplemented!()
+                0xE => {
+                    // TODO: Actually implement 0xE
+                    panic!("{:#06x} is not a valid 0xE instruction.", instruction);
+                }
+                0xF => {
+                    // TODO: Actually implement 0xF
+                    panic!("{:#06x} is not a valid 0xF instruction.", instruction);
+                }
+                _ => {
+                    unreachable!()
                 }
             }
 
