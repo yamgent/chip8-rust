@@ -339,9 +339,22 @@ impl Cpu {
                             self.memory[self.index_register as usize + 1] = (value / 10) % 10;
                             self.memory[self.index_register as usize + 2] = value % 10;
                         }
+                        0x55 => {
+                            // TODO: Ambiguous instruction - provide configuration
+                            (0..=x).into_iter().for_each(|r| {
+                                self.memory[self.index_register as usize + r] =
+                                    self.variable_registers[r];
+                            })
+                        }
+                        0x65 => {
+                            // TODO: Ambiguous instruction - provide configuration
+                            (0..=x).into_iter().for_each(|r| {
+                                self.variable_registers[r] =
+                                    self.memory[self.index_register as usize + r];
+                            })
+                        }
                         _ => {
-                            // TODO: Enable once done with every instructions.
-                            // panic!("{:#06x} is not a valid 0xF instruction.", instruction);
+                            panic!("{:#06x} is not a valid 0xF instruction.", instruction);
                         }
                     }
                 }
