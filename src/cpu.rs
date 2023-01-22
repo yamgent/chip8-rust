@@ -217,6 +217,10 @@ impl Cpu {
                 0xA => {
                     self.index_register = nnn as usize;
                 }
+                0xB => {
+                    // TODO: Ambiguous instruction - provide configuration
+                    self.program_counter = nnn as usize + self.variable_registers[0x0] as usize;
+                }
                 0xD => {
                     let x_start = (self.variable_registers[x] % 64) as u16;
                     let y_start = (self.variable_registers[y] % 32) as u16;
