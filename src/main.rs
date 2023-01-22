@@ -119,9 +119,6 @@ impl Application {
         }
     }
 
-    // TODO: Is this method redundant?
-    fn update(&mut self) {}
-
     fn render(&mut self) -> Result<(), SurfaceError> {
         self.graphics.render()
     }
@@ -184,7 +181,6 @@ async fn run() {
                 }
             }
             Event::RedrawRequested(window_id) if window_id == window.id() => {
-                application.update();
                 match application.render() {
                     Ok(_) => {}
                     Err(SurfaceError::Lost) => application.resize(application.window_size),
