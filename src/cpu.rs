@@ -37,7 +37,6 @@ pub struct Cpu {
     delay_timer_arc: Arc<Mutex<u8>>,
     sound_timer_arc: Arc<Mutex<u8>>,
 
-    // TODO: Should this be u16?
     program_counter: usize,
     index_register: u16,
     stack: Vec<u16>,

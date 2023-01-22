@@ -29,8 +29,7 @@ pub struct Graphics {
     device: Device,
     queue: Queue,
     config: SurfaceConfiguration,
-    // TODO: Rename it to window_size, in order to not confuse it with screen pixels?
-    size: PhysicalSize<u32>,
+    window_size: PhysicalSize<u32>,
     render_pipeline: RenderPipeline,
     vertex_buffer: Buffer,
     index_buffer: Buffer,
@@ -81,7 +80,7 @@ const SCREEN_INDICES: [u16; 6] = [0, 1, 3, 3, 1, 2];
 // must only be created and maintained by the main thread
 impl Graphics {
     pub async fn new(window: &Window, screen_update_receiver: Receiver<CpuScreenMem>) -> Self {
-        let size = window.inner_size();
+        let window_size = window.inner_size();
 
         let instance = Instance::new(Backends::all());
 
@@ -110,18 +109,18 @@ impl Graphics {
             .await
             .expect("Cannot find a graphics device to render on!");
 
-        if size.width == 0 || size.height == 0 {
+        if window_size.width == 0 || window_size.height == 0 {
             panic!(
                 "Window's width or height is 0, this is not allowed. Size = {} x {}",
-                size.width, size.height
+                window_size.width, window_size.height
             );
         }
 
         let config = SurfaceConfiguration {
             usage: TextureUsages::RENDER_ATTACHMENT,
             format: surface.get_supported_formats(&adapter)[0],
-            width: size.width,
-            height: size.height,
+            width: window_size.width,
+            height: window_size.height,
             present_mode: PresentMode::Fifo,
             alpha_mode: CompositeAlphaMode::Auto,
         };
@@ -159,7 +158,7 @@ impl Graphics {
 
         let ratio_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Ratio Buffer"),
-            contents: bytemuck::cast_slice(&calculate_screen_ratio(&size)),
+            contents: bytemuck::cast_slice(&calculate_screen_ratio(&window_size)),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
         let ratio_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -354,7 +353,7 @@ impl Graphics {
             device,
             queue,
             config,
-            size,
+            window_size,
             render_pipeline,
             vertex_buffer,
             index_buffer,
@@ -378,7 +377,7 @@ impl Graphics {
             return;
         }
 
-        self.size = new_size;
+        self.window_size = new_size;
         self.config.width = new_size.width;
         self.config.height = new_size.height;
 
@@ -386,7 +385,7 @@ impl Graphics {
         self.queue.write_buffer(
             &self.ratio_buffer,
             0,
-            bytemuck::cast_slice(&calculate_screen_ratio(&self.size)),
+            bytemuck::cast_slice(&calculate_screen_ratio(&self.window_size)),
         );
     }
 
