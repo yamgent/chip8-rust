@@ -333,6 +333,12 @@ impl Cpu {
                             self.index_register = FONT_START_POS as u16
                                 + (5 * (self.variable_registers[x] as u16 & 0xF));
                         }
+                        0x33 => {
+                            let value = self.variable_registers[x];
+                            self.memory[self.index_register as usize] = (value / 100) % 10;
+                            self.memory[self.index_register as usize + 1] = (value / 10) % 10;
+                            self.memory[self.index_register as usize + 2] = value % 10;
+                        }
                         _ => {
                             // TODO: Enable once done with every instructions.
                             // panic!("{:#06x} is not a valid 0xF instruction.", instruction);
