@@ -3,6 +3,7 @@ use std::{collections::HashMap, fs::File, io::Read, sync::mpsc::Sender};
 use chip8_rust::{
     cpu::{Cpu, CpuIoEvents},
     graphics::Graphics,
+    timers::Timer,
 };
 use clap::Parser;
 use once_cell::sync::Lazy;
@@ -56,10 +57,26 @@ impl Application {
 
         let graphics = Graphics::new(window, screen_update_receiver).await;
 
+        let delay_timer = Timer::new(false);
+        let sound_timer = Timer::new(true);
         // TODO: A better way of handling the program, rather than just using unwrap?
+        let mut cpu = Cpu::new(
+            program,
+            screen_update_sender,
+            cpu_io_receiver,
+            delay_timer.get_value_arc(),
+            sound_timer.get_value_arc(),
+        )
+        .unwrap();
+
         std::thread::spawn(move || {
-            let mut cpu = Cpu::new(program, screen_update_sender, cpu_io_receiver).unwrap();
             cpu.run();
+        });
+        std::thread::spawn(move || {
+            delay_timer.run();
+        });
+        std::thread::spawn(move || {
+            sound_timer.run();
         });
 
         Self {

@@ -1,6 +1,9 @@
 use std::{
     cmp::Ordering,
-    sync::mpsc::{Receiver, Sender},
+    sync::{
+        mpsc::{Receiver, Sender},
+        Arc, Mutex,
+    },
     time::{Duration, Instant},
 };
 
@@ -30,8 +33,9 @@ pub struct Cpu {
     screen_pixels: CpuScreenMem,
     screen_update_sender: Sender<CpuScreenMem>,
     cpu_io_receiver: Receiver<CpuIoEvents>,
-    rng: ThreadRng,
     keypad_state: u16,
+    delay_timer_arc: Arc<Mutex<u8>>,
+    sound_timer_arc: Arc<Mutex<u8>>,
 
     program_counter: usize,
     index_register: usize,
@@ -49,6 +53,8 @@ impl Cpu {
         program: Vec<u8>,
         screen_update_sender: Sender<CpuScreenMem>,
         cpu_io_receiver: Receiver<CpuIoEvents>,
+        delay_timer_arc: Arc<Mutex<u8>>,
+        sound_timer_arc: Arc<Mutex<u8>>,
     ) -> Result<Self, InitCpuError> {
         let mut memory = [0; MEMORY_SIZE];
 
@@ -85,7 +91,6 @@ impl Cpu {
         ]);
 
         let screen_pixels = [0; 32];
-        let rng = rand::thread_rng();
         let keypad_state = 0;
 
         let program_counter = PROGRAM_INIT_LOAD_POS;
@@ -98,8 +103,9 @@ impl Cpu {
             screen_pixels,
             screen_update_sender,
             cpu_io_receiver,
-            rng,
             keypad_state,
+            delay_timer_arc,
+            sound_timer_arc,
             program_counter,
             index_register,
             stack,
@@ -125,6 +131,7 @@ impl Cpu {
     }
 
     pub fn run(&mut self) {
+        let mut rng = rand::thread_rng();
         let duration_per_instruction: Duration =
             Duration::from_secs_f32(1f32 / INSTRUCTIONS_PER_SECOND as f32);
 
@@ -258,7 +265,7 @@ impl Cpu {
                     self.program_counter = nnn as usize + self.variable_registers[0x0] as usize;
                 }
                 0xC => {
-                    self.variable_registers[x] = self.rng.gen::<u8>() & nn;
+                    self.variable_registers[x] = rng.gen::<u8>() & nn;
                 }
                 0xD => {
                     let x_start = (self.variable_registers[x] % 64) as u16;
@@ -299,8 +306,22 @@ impl Cpu {
                     }
                 }
                 0xF => {
-                    // TODO: Actually implement 0xF
-                    // panic!("{:#06x} is not a valid 0xF instruction.", instruction);
+                    match nn {
+                        0x07 => {
+                            let timer_value = *self.delay_timer_arc.lock().unwrap();
+                            self.variable_registers[x] = timer_value;
+                        }
+                        0x15 => {
+                            *self.delay_timer_arc.lock().unwrap() = self.variable_registers[x];
+                        }
+                        0x18 => {
+                            *self.sound_timer_arc.lock().unwrap() = self.variable_registers[x];
+                        }
+                        _ => {
+                            // TODO: Enable once done with every instructions.
+                            // panic!("{:#06x} is not a valid 0xF instruction.", instruction);
+                        }
+                    }
                 }
                 _ => {
                     unreachable!()
