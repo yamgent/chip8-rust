@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    sync::mpsc::Sender,
+    sync::mpsc::{Receiver, Sender},
     time::{Duration, Instant},
 };
 
@@ -16,11 +16,22 @@ const INSTRUCTIONS_PER_SECOND: usize = 700;
 
 pub type CpuScreenMem = [u64; 32];
 
+pub enum CpuIoEvents {
+    KeyPressed(u8),
+    KeyReleased(u8),
+}
+
+fn get_keypad_state_mask(key: u8) -> u16 {
+    1 << key
+}
+
 pub struct Cpu {
     memory: [u8; MEMORY_SIZE],
     screen_pixels: CpuScreenMem,
     screen_update_sender: Sender<CpuScreenMem>,
+    cpu_io_receiver: Receiver<CpuIoEvents>,
     rng: ThreadRng,
+    keypad_state: u16,
 
     program_counter: usize,
     index_register: usize,
@@ -37,6 +48,7 @@ impl Cpu {
     pub fn new(
         program: Vec<u8>,
         screen_update_sender: Sender<CpuScreenMem>,
+        cpu_io_receiver: Receiver<CpuIoEvents>,
     ) -> Result<Self, InitCpuError> {
         let mut memory = [0; MEMORY_SIZE];
 
@@ -74,6 +86,7 @@ impl Cpu {
 
         let screen_pixels = [0; 32];
         let rng = rand::thread_rng();
+        let keypad_state = 0;
 
         let program_counter = PROGRAM_INIT_LOAD_POS;
         let index_register = 0;
@@ -84,7 +97,9 @@ impl Cpu {
             memory,
             screen_pixels,
             screen_update_sender,
+            cpu_io_receiver,
             rng,
+            keypad_state,
             program_counter,
             index_register,
             stack,
@@ -98,12 +113,27 @@ impl Cpu {
             .expect("Update screen failed!");
     }
 
+    fn process_cpu_io_event(&mut self, event: &CpuIoEvents) {
+        match event {
+            CpuIoEvents::KeyPressed(key) => {
+                self.keypad_state |= get_keypad_state_mask(*key);
+            }
+            CpuIoEvents::KeyReleased(key) => {
+                self.keypad_state &= !get_keypad_state_mask(*key);
+            }
+        }
+    }
+
     pub fn run(&mut self) {
         let duration_per_instruction: Duration =
             Duration::from_secs_f32(1f32 / INSTRUCTIONS_PER_SECOND as f32);
 
         loop {
             let start_time = Instant::now();
+
+            while let Ok(event) = self.cpu_io_receiver.try_recv() {
+                self.process_cpu_io_event(&event);
+            }
 
             let instruction = ((self.memory[self.program_counter] as u16) << 8)
                 + self.memory[self.program_counter + 1] as u16;
@@ -256,12 +286,21 @@ impl Cpu {
                     self.send_screen_update();
                 }
                 0xE => {
-                    // TODO: Actually implement 0xE
-                    panic!("{:#06x} is not a valid 0xE instruction.", instruction);
+                    if nn == 0x9E {
+                        skip = self.keypad_state
+                            & get_keypad_state_mask(self.variable_registers[x])
+                            != 0;
+                    } else if nn == 0xA1 {
+                        skip = self.keypad_state
+                            & get_keypad_state_mask(self.variable_registers[x])
+                            == 0;
+                    } else {
+                        panic!("{:#06x} is not a valid 0xE instruction.", instruction);
+                    }
                 }
                 0xF => {
                     // TODO: Actually implement 0xF
-                    panic!("{:#06x} is not a valid 0xF instruction.", instruction);
+                    // panic!("{:#06x} is not a valid 0xF instruction.", instruction);
                 }
                 _ => {
                     unreachable!()

@@ -168,6 +168,7 @@ dependencies = [
  "clap",
  "env_logger",
  "log",
+ "once_cell",
  "pollster",
  "rand",
  "wgpu",
