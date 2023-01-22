@@ -27,7 +27,7 @@ struct Application {
     cpu_io_sender: Sender<CpuIoEvents>,
 }
 
-const KEYMAP: Lazy<HashMap<VirtualKeyCode, u8>> = Lazy::new(|| {
+static KEYMAP: Lazy<HashMap<VirtualKeyCode, u8>> = Lazy::new(|| {
     HashMap::from([
         (VirtualKeyCode::Key1, 0x1),
         (VirtualKeyCode::Key2, 0x2),
@@ -102,7 +102,7 @@ impl Application {
             ..
         } = event
         {
-            match KEYMAP.get(&virtual_keycode) {
+            match KEYMAP.get(virtual_keycode) {
                 Some(value) => {
                     self.cpu_io_sender
                         .send(match state {

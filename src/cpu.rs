@@ -216,16 +216,12 @@ impl Cpu {
                         let (final_value, overflowed) =
                             self.variable_registers[x].overflowing_add(self.variable_registers[y]);
 
-                        self.variable_registers[0xF] = if overflowed { 1 } else { 0 };
+                        self.variable_registers[0xF] = overflowed.into();
                         self.variable_registers[x] = final_value;
                     }
                     0x5 => {
                         self.variable_registers[0xF] =
-                            if self.variable_registers[x] > self.variable_registers[y] {
-                                1
-                            } else {
-                                0
-                            };
+                            (self.variable_registers[x] > self.variable_registers[y]).into();
                         self.variable_registers[x] =
                             self.variable_registers[x].wrapping_sub(self.variable_registers[y]);
                     }
@@ -236,11 +232,7 @@ impl Cpu {
                     }
                     0x7 => {
                         self.variable_registers[0xF] =
-                            if self.variable_registers[y] > self.variable_registers[x] {
-                                1
-                            } else {
-                                0
-                            };
+                            (self.variable_registers[y] > self.variable_registers[x]).into();
                         self.variable_registers[x] =
                             self.variable_registers[y].wrapping_sub(self.variable_registers[x]);
                     }
