@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rand::{rngs::ThreadRng, Rng};
+use rand::Rng;
 
 const MEMORY_SIZE: usize = 4096;
 const PROGRAM_INIT_LOAD_POS: usize = 0x200;
@@ -324,6 +324,18 @@ impl Cpu {
                                 self.variable_registers[0xF] = 1;
                             }
                             self.index_register += self.variable_registers[x] as u16;
+                        }
+                        0x0A => {
+                            let key_value = loop {
+                                let event =
+                                    self.cpu_io_receiver.recv().expect("CPU IO receive error");
+                                self.process_cpu_io_event(&event);
+
+                                if let CpuIoEvents::KeyPressed(value) = event {
+                                    break value;
+                                }
+                            };
+                            self.variable_registers[x] = key_value;
                         }
                         _ => {
                             // TODO: Enable once done with every instructions.
