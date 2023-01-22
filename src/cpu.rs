@@ -155,6 +155,60 @@ impl Cpu {
                 0x7 => {
                     self.variable_registers[x] = self.variable_registers[x].wrapping_add(nn);
                 }
+                0x8 => match n {
+                    0x0 => {
+                        self.variable_registers[x] = self.variable_registers[y];
+                    }
+                    0x1 => {
+                        self.variable_registers[x] |= self.variable_registers[y];
+                    }
+                    0x2 => {
+                        self.variable_registers[x] &= self.variable_registers[y];
+                    }
+                    0x3 => {
+                        self.variable_registers[x] ^= self.variable_registers[y];
+                    }
+                    0x4 => {
+                        let (final_value, overflowed) =
+                            self.variable_registers[x].overflowing_add(self.variable_registers[y]);
+
+                        self.variable_registers[0xF] = if overflowed { 1 } else { 0 };
+                        self.variable_registers[x] = final_value;
+                    }
+                    0x5 => {
+                        self.variable_registers[0xF] =
+                            if self.variable_registers[x] > self.variable_registers[y] {
+                                1
+                            } else {
+                                0
+                            };
+                        self.variable_registers[x] =
+                            self.variable_registers[x].wrapping_sub(self.variable_registers[y]);
+                    }
+                    0x6 => {
+                        // TODO: Ambiguous instruction - provide configuration
+                        self.variable_registers[0xF] = self.variable_registers[x] & 1;
+                        self.variable_registers[x] >>= 1;
+                    }
+                    0x7 => {
+                        self.variable_registers[0xF] =
+                            if self.variable_registers[y] > self.variable_registers[x] {
+                                1
+                            } else {
+                                0
+                            };
+                        self.variable_registers[x] =
+                            self.variable_registers[y].wrapping_sub(self.variable_registers[x]);
+                    }
+                    0xE => {
+                        // TODO: Ambiguous instruction - provide configuration
+                        self.variable_registers[0xF] = (self.variable_registers[x] & 0x80) >> 7;
+                        self.variable_registers[x] <<= 1;
+                    }
+                    _ => {
+                        panic!("{:#06x} is not a valid instruction.", instructions);
+                    }
+                },
                 0x9 => {
                     if self.variable_registers[x] != self.variable_registers[y] {
                         skip = true;
