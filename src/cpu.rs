@@ -37,8 +37,9 @@ pub struct Cpu {
     delay_timer_arc: Arc<Mutex<u8>>,
     sound_timer_arc: Arc<Mutex<u8>>,
 
+    // TODO: Should this be u16?
     program_counter: usize,
-    index_register: usize,
+    index_register: u16,
     stack: Vec<u16>,
     variable_registers: [u8; 16],
 }
@@ -258,7 +259,7 @@ impl Cpu {
                     }
                 }
                 0xA => {
-                    self.index_register = nnn as usize;
+                    self.index_register = nnn;
                 }
                 0xB => {
                     // TODO: Ambiguous instruction - provide configuration
@@ -278,7 +279,7 @@ impl Cpu {
                         .filter(|y| (*y as usize) < total_len)
                         .for_each(|y| {
                             let nth_byte =
-                                self.memory[self.index_register + ((y - y_start) as usize)] as u64;
+                                self.memory[(self.index_register + y - y_start) as usize] as u64;
                             let mask = match x_start.cmp(&56) {
                                 Ordering::Equal => nth_byte,
                                 Ordering::Less => nth_byte << (56 - x_start),
@@ -316,6 +317,13 @@ impl Cpu {
                         }
                         0x18 => {
                             *self.sound_timer_arc.lock().unwrap() = self.variable_registers[x];
+                        }
+                        0x1E => {
+                            // TODO: Ambiguous instruction - provide configuration
+                            if self.index_register == 0xFFF && self.variable_registers[x] > 0 {
+                                self.variable_registers[0xF] = 1;
+                            }
+                            self.index_register += self.variable_registers[x] as u16;
                         }
                         _ => {
                             // TODO: Enable once done with every instructions.
