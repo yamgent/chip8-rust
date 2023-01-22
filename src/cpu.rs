@@ -329,6 +329,10 @@ impl Cpu {
                             };
                             self.variable_registers[x] = key_value;
                         }
+                        0x29 => {
+                            self.index_register = FONT_START_POS as u16
+                                + (5 * (self.variable_registers[x] as u16 & 0xF));
+                        }
                         _ => {
                             // TODO: Enable once done with every instructions.
                             // panic!("{:#06x} is not a valid 0xF instruction.", instruction);
