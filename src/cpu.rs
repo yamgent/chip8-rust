@@ -110,6 +110,8 @@ impl Cpu {
             let nn = (instructions & 0x00FF) as u8;
             let nnn = instructions & 0x0FFF;
 
+            let mut skip = false;
+
             match op {
                 0x0 => {
                     if nnn == 0xE0 {
@@ -132,11 +134,31 @@ impl Cpu {
                     self.stack.push(self.program_counter as u16);
                     self.program_counter = nnn as usize;
                 }
+                0x3 => {
+                    if self.variable_registers[x] == nn {
+                        skip = true;
+                    }
+                }
+                0x4 => {
+                    if self.variable_registers[x] != nn {
+                        skip = true;
+                    }
+                }
+                0x5 => {
+                    if self.variable_registers[x] == self.variable_registers[y] {
+                        skip = true;
+                    }
+                }
                 0x6 => {
                     self.variable_registers[x] = nn;
                 }
                 0x7 => {
                     self.variable_registers[x] = self.variable_registers[x].wrapping_add(nn);
+                }
+                0x9 => {
+                    if self.variable_registers[x] != self.variable_registers[y] {
+                        skip = true;
+                    }
                 }
                 0xA => {
                     self.index_register = nnn as usize;
@@ -171,6 +193,10 @@ impl Cpu {
                 {
                     unimplemented!()
                 }
+            }
+
+            if skip {
+                self.program_counter += 2
             }
 
             let elapsed = start_time.elapsed();
